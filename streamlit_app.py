@@ -16,9 +16,9 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 USE_TLS = True
 
-EMAILS_PER_BATCH = 5        # Gmail-safe
-BATCH_COOLDOWN = 120        # 2 minutes
-DELAY_BETWEEN_EMAILS = 22   # seconds
+EMAILS_PER_BATCH = 5          # Gmail safe
+BATCH_COOLDOWN = 120          # seconds
+DELAY_BETWEEN_EMAILS = 22     # seconds
 
 # ---------------- PAGE ----------------
 st.set_page_config(page_title="Team Niwrutti")
@@ -74,7 +74,7 @@ from_name = st.text_input("Sender name")
 # ---------------- MESSAGE ----------------
 st.subheader("Compose Email")
 subject_tpl = st.text_input("Subject")
-body_tpl = st.text_area("Body", height=400)
+body_tpl = st.text_area("Body", height=450)
 
 # ---------------- STATUS ----------------
 st.metric("Emails Sent", st.session_state.sent_count)
@@ -111,6 +111,7 @@ def send_bulk(df_to_send, resume=False):
     sent_in_batch = 0
 
     for idx in range(start_index, total):
+
         if st.session_state.stop_sending:
             st.warning("Sending stopped. You can resume later.")
             break
@@ -121,13 +122,27 @@ def send_bulk(df_to_send, resume=False):
             continue
 
         subject = safe_format(subject_tpl, row)
-        body = safe_format(body_tpl, row)
+        body_text = safe_format(body_tpl, row)
+
+        # -------- PARAGRAPH-SAFE HTML --------
+        paragraphs = [
+            f"<p style='margin:0 0 16px 0;'>{line}</p>"
+            for line in body_text.split("\n") if line.strip()
+        ]
+
+        html_body = f"""
+        <html>
+          <body style="font-family:'Times New Roman', serif; font-size:15px;">
+            {''.join(paragraphs)}
+          </body>
+        </html>
+        """
 
         msg = MIMEMultipart()
         msg["From"] = formataddr((str(Header(from_name, "utf-8")), from_email))
         msg["To"] = recip
         msg["Subject"] = str(Header(subject, "utf-8"))
-        msg.attach(MIMEText(body, "html", "utf-8"))
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
 
         try:
             with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
@@ -145,12 +160,11 @@ def send_bulk(df_to_send, resume=False):
             st.session_state.failed_rows.append({**row, "__error": str(e)})
 
         progress.progress((idx + 1) / total)
-
         time.sleep(DELAY_BETWEEN_EMAILS)
 
-        # -------- RATE LIMIT SAFETY --------
+        # -------- RATE LIMIT --------
         if sent_in_batch >= EMAILS_PER_BATCH:
-            st.warning("Cooling down to stay Gmail-safe...")
+            st.warning("Cooling down (Gmail safety)...")
             time.sleep(BATCH_COOLDOWN)
             sent_in_batch = 0
 
@@ -171,6 +185,6 @@ if st.session_state.failed_rows:
 
 # ---------------- FOOTER ----------------
 st.markdown(
-    f"**Total Sent:** {st.session_state.sent_count}  |  "
+    f"**Total Sent:** {st.session_state.sent_count} | "
     f"**Failed:** {len(st.session_state.failed_rows)}"
 )
