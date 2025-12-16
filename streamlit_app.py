@@ -1,6 +1,7 @@
 import io
 import re
 import time
+import html
 from collections import defaultdict
 from email.header import Header
 from email.utils import formataddr, parseaddr
@@ -16,9 +17,9 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 USE_TLS = True
 
-EMAILS_PER_BATCH = 5          # Gmail safe
-BATCH_COOLDOWN = 120          # seconds
-DELAY_BETWEEN_EMAILS = 22     # seconds
+EMAILS_PER_BATCH = 5
+BATCH_COOLDOWN = 120
+DELAY_BETWEEN_EMAILS = 22
 
 # ---------------- PAGE ----------------
 st.set_page_config(page_title="Team Niwrutti")
@@ -26,7 +27,6 @@ st.title("📧 Team Niwrutti – Smart Bulk Mailer")
 
 # ---------------- SESSION STATE ----------------
 defaults = {
-    "sending": False,
     "stop_sending": False,
     "sent_count": 0,
     "last_sent_index": -1,
@@ -48,12 +48,30 @@ def clean_email_address(raw_email):
         return None
     raw_email = clean_value(raw_email)
     _, addr = parseaddr(raw_email)
-    if not addr:
-        addr = re.sub(r"[<>\s\"']", "", raw_email)
     return addr if "@" in addr else None
 
 def safe_format(template, mapping):
     return template.format_map(defaultdict(str, mapping))
+
+def text_to_html(text):
+    """
+    Gmail-safe text → HTML conversion
+    - Double line breaks → paragraphs
+    - Single line breaks → <br>
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = html.escape(text)
+
+    paragraphs = text.split("\n\n")
+    html_blocks = []
+
+    for para in paragraphs:
+        para = para.replace("\n", "<br>")
+        html_blocks.append(
+            f"<p style='margin:0 0 16px 0; line-height:1.6;'>{para}</p>"
+        )
+
+    return "".join(html_blocks)
 
 # ---------------- CSV UPLOAD ----------------
 st.subheader("Upload Recipient CSV")
@@ -82,7 +100,7 @@ progress = st.progress(0)
 
 # ---------------- BUTTONS ----------------
 c1, c2, c3 = st.columns(3)
-send_btn = c1.button("▶ Send Emails")
+send_btn = c1.button("▶ Send")
 stop_btn = c2.button("⛔ Stop")
 resume_btn = c3.button("🔁 Resume")
 
@@ -124,16 +142,10 @@ def send_bulk(df_to_send, resume=False):
         subject = safe_format(subject_tpl, row)
         body_text = safe_format(body_tpl, row)
 
-        # -------- PARAGRAPH-SAFE HTML --------
-        paragraphs = [
-            f"<p style='margin:0 0 16px 0;'>{line}</p>"
-            for line in body_text.split("\n") if line.strip()
-        ]
-
         html_body = f"""
         <html>
           <body style="font-family:'Times New Roman', serif; font-size:15px;">
-            {''.join(paragraphs)}
+            {text_to_html(body_text)}
           </body>
         </html>
         """
@@ -162,9 +174,8 @@ def send_bulk(df_to_send, resume=False):
         progress.progress((idx + 1) / total)
         time.sleep(DELAY_BETWEEN_EMAILS)
 
-        # -------- RATE LIMIT --------
         if sent_in_batch >= EMAILS_PER_BATCH:
-            st.warning("Cooling down (Gmail safety)...")
+            st.warning("Cooling down for Gmail safety...")
             time.sleep(BATCH_COOLDOWN)
             sent_in_batch = 0
 
