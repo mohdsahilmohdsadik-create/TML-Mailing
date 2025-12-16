@@ -53,12 +53,12 @@ def clean_email_address(raw_email):
 def safe_format(template, mapping):
     return template.format_map(defaultdict(str, mapping))
 
+def get_first_name(full_name: str) -> str:
+    if not full_name:
+        return ""
+    return full_name.strip().split()[0]
+
 def text_to_html(text):
-    """
-    Gmail-safe text → HTML conversion
-    - Double line breaks → paragraphs
-    - Single line breaks → <br>
-    """
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = html.escape(text)
 
@@ -140,7 +140,11 @@ def send_bulk(df_to_send, resume=False):
             continue
 
         subject = safe_format(subject_tpl, row)
-        body_text = safe_format(body_tpl, row)
+
+        body_row = dict(row)
+        body_row["name"] = get_first_name(row.get("name", ""))
+
+        body_text = safe_format(body_tpl, body_row)
 
         html_body = f"""
         <html>
